@@ -35,7 +35,7 @@ class build_py_with_cffi_marker(build_py):
             'CFFI_INSTALLED_MODE = False\n',
             'CFFI_INSTALLED_MODE = True\n')
         assert 'CFFI_INSTALLED_MODE = True\n' in marker_data
-        marker_path2 = marker_path + '.processed'
+        marker_path2 = f'{marker_path}.processed'
         with open(marker_path2, 'w') as marker_file:
             marker_file.write(marker_data)
         copystat(marker_path, marker_path2)

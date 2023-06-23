@@ -159,9 +159,9 @@ def track_updated_files(sess, vol, tt):
     sk.max_transid = u64_max
     sk.max_type = lib.BTRFS_INODE_ITEM_KEY
 
-    while True:
-        sk.nr_items = 4096
+    sk.nr_items = 4096
 
+    while True:
         try:
             fcntl.ioctl(
                 vol.fd, lib.BTRFS_IOC_TREE_SEARCH, args_buffer)
@@ -172,7 +172,7 @@ def track_updated_files(sess, vol, tt):
             break
 
         offset = 0
-        for item_id in range(sk.nr_items):
+        for _ in range(sk.nr_items):
             sh = ffi.cast(
                 'struct btrfs_ioctl_search_header *', args.buf + offset)
             offset += ffi.sizeof('struct btrfs_ioctl_search_header') + sh.len
@@ -193,9 +193,8 @@ def track_updated_files(sess, vol, tt):
                     and size >= vol.last_tracked_size_cutoff):
                     if inode_gen <= vol.last_tracked_generation:
                         continue
-                else:
-                    if inode_gen < min_generation:
-                        continue
+                elif inode_gen < min_generation:
+                    continue
                 if not stat.S_ISREG(mode):
                     continue
                 ino = sh.objectid
@@ -643,15 +642,6 @@ def dedup_fileset(ds, fileset, fd_names, fd_inodes, size):
             dfiles_successful.append(dfile)
             ds.space_gain += size
             ds.tt.update(space_gain=ds.space_gain)
-        elif False:
-            # Often happens when there are multiple files with
-            # the same extents, plus one with the same size and
-            # mini-hash but a difference elsewhere.
-            # We hash the same extents multiple times, but
-            # I assume the data is shared in the vfs cache.
-            ds.tt.notify(
-                'Did not deduplicate (same extents): %r %r' % (
-                    sdesc, ddesc))
     if dfiles_successful:
         evt = DedupEvent(
             fs=ds.fs.impl, item_size=size, created=system_now())

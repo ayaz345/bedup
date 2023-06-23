@@ -62,10 +62,7 @@ def cmd_dedup_files(args):
 
 def cmd_find_new(args):
     volume_fd = os.open(args.volume, os.O_DIRECTORY)
-    if args.zero_terminated:
-        sep = '\0'
-    else:
-        sep = '\n'
+    sep = '\0' if args.zero_terminated else '\n'
     find_new(volume_fd, args.generation, sys.stdout, terse=args.terse, sep=sep)
 
 
@@ -102,8 +99,7 @@ def get_session(args):
     sqlalchemy.event.listen(engine, 'connect', sql_setup)
     upgrade_schema(engine)
     Session = sessionmaker(bind=engine)
-    sess = Session()
-    return sess
+    return Session()
 
 
 def vol_cmd(args):
@@ -170,10 +166,10 @@ def vol_cmd(args):
         if args.command == 'reset':
             for vol in vols:
                 if user_confirmation(
-                    'Reset tracking status of {}?'.format(vol), False
+                    f'Reset tracking status of {vol}?', False
                 ):
                     reset_vol(sess, vol)
-                    print('Reset of {} done'.format(vol))
+                    print(f'Reset of {vol} done')
 
         if args.command in ('scan', 'dedup'):
             set_idle_priority()
@@ -188,11 +184,11 @@ def vol_cmd(args):
         if args.command == 'dedup':
             if args.groupby == 'vol':
                 for vol in vols:
-                    tt.notify('Deduplicating volume %s' % vol)
+                    tt.notify(f'Deduplicating volume {vol}')
                     dedup_tracked(sess, [vol], tt, defrag=args.defrag)
             elif args.groupby == 'mpoint':
                 for fs, volset in vols_by_fs.items():
-                    tt.notify('Deduplicating filesystem %s' % fs)
+                    tt.notify(f'Deduplicating filesystem {fs}')
                     dedup_tracked(sess, volset, tt, defrag=args.defrag)
             else:
                 assert False, args.groupby
@@ -225,7 +221,7 @@ def user_confirmation(message, default):
 
     while True:
         try:
-            choice = input("%s (%s) " % (message, choices)).lower().strip()
+            choice = input(f"{message} ({choices}) ").lower().strip()
         except EOFError:
             # non-interactive
             choice = ''
@@ -241,23 +237,20 @@ def cmd_forget_fs(args):
     filesystems = [
         whole_fs.get_fs_existing(UUID(hex=uuid)) for uuid in args.uuid]
     for fs in filesystems:
-        if not user_confirmation('Wipe all data about fs %s?' % fs, False):
+        if not user_confirmation(f'Wipe all data about fs {fs}?', False):
             continue
         for vol in fs._impl.volumes:
             # A lot of things will cascade
             sess.delete(vol)
         sess.delete(fs._impl)
         sess.commit()
-        print('Wiped all data about %s' % fs)
+        print(f'Wiped all data about {fs}')
 
 
 def cmd_size_lookup(args):
     sess = get_session(args)
     whole_fs = WholeFS(sess)
-    if args.zero_terminated:
-        end ='\0'
-    else:
-        end = '\n'
+    end = '\0' if args.zero_terminated else '\n'
     for vol, rp, inode in annotated_inodes_by_size(whole_fs, args.size):
         print(vol.describe_path(rp), end=end)
 
@@ -327,7 +320,8 @@ def scan_flags(parser):
 def is_in_path(cmd):
     # See shutil.which in Python 3.3
     return any(
-        os.path.exists(el + '/' + cmd) for el in os.environ['PATH'].split(':'))
+        os.path.exists(f'{el}/{cmd}') for el in os.environ['PATH'].split(':')
+    )
 
 
 def main(argv):

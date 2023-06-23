@@ -78,7 +78,7 @@ class NotAVolume(RuntimeError):
 def path_isprefix(prefix, path):
     # prefix and path must be absolute and normalised,
     # including symlink resolution.
-    return prefix == '/' or path == prefix or path.startswith(prefix + '/')
+    return prefix == '/' or path == prefix or path.startswith(f'{prefix}/')
 
 
 class BtrfsFilesystem2(object):
@@ -133,7 +133,7 @@ class BtrfsFilesystem2(object):
     def desc(self):
         try:
             if self.label and self._whole_fs._label_occurs[self.label] == 1:
-                return '<%s>' % self.label
+                return f'<{self.label}>'
         except NotPlugged:
             # XXX Keep the label in the db?
             pass
@@ -142,10 +142,11 @@ class BtrfsFilesystem2(object):
     def best_desc(self, root_id):
         if root_id not in self._best_desc:
             intpath = self.root_info[root_id].path
-            candidate_mis = [
-                mi for mi in self.minfos
-                if not mi.private and path_isprefix(mi.internal_path, intpath)]
-            if candidate_mis:
+            if candidate_mis := [
+                mi
+                for mi in self.minfos
+                if not mi.private and path_isprefix(mi.internal_path, intpath)
+            ]:
                 mi = max(
                     candidate_mis, key=lambda mi: len(mi.internal_path))
                 base = mi.mpoint
@@ -238,12 +239,10 @@ class BtrfsFilesystem2(object):
         def _iter_children(root_id, top_level):
             yield (root_id, self.root_info[root_id], top_level)
             for child_id in child_id_map[root_id]:
-                for item in _iter_children(child_id, False):
-                    yield item
+                yield from _iter_children(child_id, False)
 
         for root_id in start_root_ids:
-            for item in _iter_children(root_id, True):
-                yield item
+            yield from _iter_children(root_id, True)
 
     def _load_visible_vols(self, start_paths, nest_desc):
         # Use dicts, there may be repetitions under multiple mountpoints
@@ -559,10 +558,10 @@ class WholeFS(object):
             try:
                 fs.root_info
             except NotMounted:
-                tt.notify('Skipping filesystem %s, not mounted' % fs)
+                tt.notify(f'Skipping filesystem {fs}, not mounted')
                 continue
             if all(mi.readonly for mi in fs.minfos):
-                tt.notify('Skipping filesystem %s, not mounted rw' % fs)
+                tt.notify(f'Skipping filesystem {fs}, not mounted rw')
                 continue
             loaded.extend(self.load_vols_for_fs(fs, tt))
         return loaded
@@ -593,9 +592,8 @@ class WholeFS(object):
                     tt.notify(
                         'Skipped %d frozen volumes in filesystem %s' % (
                             skipped, vol.fs))
-            else:
-                if vol not in loaded:
-                    loaded[vol] = True
+            elif vol not in loaded:
+                loaded[vol] = True
         return loaded.keys()
 
 
@@ -610,7 +608,7 @@ def is_subvolume(btrfs_mountpoint_fd):
 
 
 def show_fs(fs, print_indented, show_deleted):
-    vols_by_id = dict((db_vol.root_id, db_vol) for db_vol in fs._impl.volumes)
+    vols_by_id = {db_vol.root_id: db_vol for db_vol in fs._impl.volumes}
     root_ids = set(vols_by_id.keys())
     has_ri = False
     deleted_skipped = 0
@@ -656,13 +654,12 @@ def show_fs(fs, print_indented, show_deleted):
             ri = fs.root_info[root_id]
             desc = fs.best_desc(root_id)
             if desc.is_fs_path:
-                print_indented('Accessible at %s' % desc.description, 1)
+                print_indented(f'Accessible at {desc.description}', 1)
             else:
-                print_indented('Internal path %s' % ri.path, 1)
+                print_indented(f'Internal path {ri.path}', 1)
         else:
             # We can use vol, since keys come from one or the other
-            print_indented(
-                'Last seen at %s' % vol.last_known_mountpoint, 1)
+            print_indented(f'Last seen at {vol.last_known_mountpoint}', 1)
 
     if deleted_skipped:
         print_indented('Skipped %d deleted volumes' % deleted_skipped, 0)
@@ -703,7 +700,7 @@ def show_vols(whole_fs, fsuuid_or_device, show_deleted):
                     continue
             sys.stdout.write('Label: %s UUID: %s\n' % (di.label, fs.uuid))
             for dev in di.devices:
-                print_indented('Device: %s' % (dev, ), 0)
+                print_indented(f'Device: {dev}', 0)
             show_fs(fs, print_indented, show_deleted)
         elif device_filter is None:
             sys.stdout.write(

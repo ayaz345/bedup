@@ -20,19 +20,20 @@ tdir = db = fs = fsimage = fsimage2 = sampledata1 = sampledata2 = vol_fd = None
 
 def mk_sample_data(fn):
     subprocess.check_call(
-        'dd bs=4096 count=2048 if=/dev/urandom'.split() + ['of=' + fn])
+        'dd bs=4096 count=2048 if=/dev/urandom'.split() + [f'of={fn}']
+    )
     return fn
 
 
 def setup_module():
     global tdir, db, fs, fsimage, fsimage2, sampledata1, sampledata2, vol_fd
     tdir = tempfile.mkdtemp(prefix='dedup-tests-')
-    db = tdir + '/db.sqlite'
-    fsimage = tdir + '/fsimage.btrfs'
-    fsimage2 = tdir + '/fsimage-nolabel.btrfs'
-    sampledata1 = mk_sample_data(tdir + '/s1.sample')
-    sampledata2 = mk_sample_data(tdir + '/s2.sample')
-    fs = tdir + '/fs'
+    db = f'{tdir}/db.sqlite'
+    fsimage = f'{tdir}/fsimage.btrfs'
+    fsimage2 = f'{tdir}/fsimage-nolabel.btrfs'
+    sampledata1 = mk_sample_data(f'{tdir}/s1.sample')
+    sampledata2 = mk_sample_data(f'{tdir}/s2.sample')
+    fs = f'{tdir}/fs'
     os.mkdir(fs)
 
     # The older mkfs.btrfs on travis somehow needs 256M;
@@ -81,7 +82,7 @@ def boxed_call(argv, expected_rv=None):
     argv = list(argv)
     if argv[0] not in 'dedup-files find-new'.split():
         argv[1:1] = ['--db-path', db]
-    argv[0:0] = ['__main__']
+    argv[:0] = ['__main__']
     proc = multiprocessing.Process(target=subp_main, args=(child_conn, argv))
     proc.start()
     rv = parent_conn.recv()
@@ -109,27 +110,36 @@ def open_cloexec(fname, rw=False):
 
 def test_functional():
     boxed_call('scan --'.split() + [fs])
-    with open_cloexec(fs + '/one.sample') as busy1:
-        with open_cloexec(fs + '/three.sample') as busy2:
+    with open_cloexec(f'{fs}/one.sample') as busy1:
+        with open_cloexec(f'{fs}/three.sample') as busy2:
             boxed_call('dedup --'.split() + [fs])
     boxed_call('reset --'.split() + [fs])
     boxed_call('scan --size-cutoff=65536 --'.split() + [fs, fs])
     boxed_call('dedup --'.split() + [fs])
     boxed_call(
-        'dedup-files --defrag --'.split() +
-        [fs + '/one.sample', fs + '/two.sample'])
-    stat0 = stat(fs + '/one.sample')
+        (
+            'dedup-files --defrag --'.split()
+            + [f'{fs}/one.sample', f'{fs}/two.sample']
+        )
+    )
+    stat0 = stat(f'{fs}/one.sample')
     shutil.copy(sampledata1, os.path.join(fs, 'two.sample'))
-    with open_cloexec(fs + '/one.sample', rw=True):
-        with open_cloexec(fs + '/two.sample', rw=True):
+    with open_cloexec(f'{fs}/one.sample', rw=True):
+        with open_cloexec(f'{fs}/two.sample', rw=True):
             boxed_call(
-                'dedup-files --defrag --'.split() +
-                    [fs + '/one.sample', fs + '/two.sample'],
-                expected_rv=1)
+                (
+                    'dedup-files --defrag --'.split()
+                    + [f'{fs}/one.sample', f'{fs}/two.sample']
+                ),
+                expected_rv=1,
+            )
     boxed_call(
-        'dedup-files --defrag --'.split() +
-            [fs + '/one.sample', fs + '/two.sample'])
-    stat1 = stat(fs + '/one.sample')
+        (
+            'dedup-files --defrag --'.split()
+            + [f'{fs}/one.sample', f'{fs}/two.sample']
+        )
+    )
+    stat1 = stat(f'{fs}/one.sample')
     # Check that atime and mtime are restored
     assert stat0 == stat1
     boxed_call('find-new --'.split() + [fs])

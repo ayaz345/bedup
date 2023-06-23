@@ -373,70 +373,15 @@ def ioctl_pybug(fd, ioc, arg=0):
 def lookup_ino_paths(volume_fd, ino, alloc_extra=0):  # pragma: no cover
     raise OSError('kernel bugs')
 
-    # This ioctl requires root
-    args = ffi.new('struct btrfs_ioctl_ino_path_args*')
-
-    assert alloc_extra >= 0
-    # XXX We're getting some funky overflows here
-    # inode-resolve -v 541144
-    # NB: as of 3.6.1 the kernel will allow at most 4096 bytes here,
-    # from the min_t in fs/btrfs/ioctl.c
-    alloc_size = 4096 + alloc_extra
-
-    # keep a reference around; args.fspath isn't a reference after the cast
-    fspath = ffi.new('char[]', alloc_size)
-
-    args.fspath = ffi.cast('uint64_t', fspath)
-    args.size = alloc_size
-    args.inum = ino
-
-    ioctl_pybug(volume_fd, lib.BTRFS_IOC_INO_PATHS, ffi.buffer(args))
-    data_container = ffi.cast('struct btrfs_data_container *', fspath)
-    if not (data_container.bytes_missing == data_container.elem_missed == 0):
-        print(
-            'Problem inode %d %d %d' % (
-                ino, data_container.bytes_missing, data_container.elem_missed),
-            file=sys.stderr)
-        # just say no
-        raise IOError('Problem on inode %d' % ino)
-
-        if alloc_extra:
-            # We already added a lot of padding, don't get caught in a loop.
-            raise IOError('Problem on inode %d' % ino)
-        else:
-            # The +1024 is some extra padding so we don't have to realloc twice
-            # if someone is creating hardlinks while we run.
-            # The + 8 * is a workaround for the kernel being a little off
-            # in its pointer logic.
-            # Want: yield from
-            for el in lookup_ino_paths(
-                volume_fd, ino,
-                data_container.bytes_missing + 1024
-                + 8 * data_container.elem_missed):
-                yield el
-            return
-
-    base = ffi.cast('char*', data_container.val)
-    offsets = ffi.cast('uint64_t*', data_container.val)
-
-    for i_path in range(data_container.elem_cnt):
-        ptr = base + offsets[i_path]
-        path = os.fsdecode(ffi.string(ptr))
-        yield path
-
 
 def get_fsid(fd):
-    if False:  # pragma: nocover
-        args = ffi.new('struct btrfs_ioctl_fs_info_args *')
-        args_buf = ffi.buffer(args)
-    else:
-        # Work around http://bugs.python.org/issue1520818
-        # by making sure the buffer size isn't 1024
-        args_cbuf = ffi.new(
-            'char[]',
-            max(ffi.sizeof('struct btrfs_ioctl_fs_info_args'), 1025))
-        args_buf = ffi.buffer(args_cbuf)
-        args = ffi.cast('struct btrfs_ioctl_fs_info_args *', args_cbuf)
+    # Work around http://bugs.python.org/issue1520818
+    # by making sure the buffer size isn't 1024
+    args_cbuf = ffi.new(
+        'char[]',
+        max(ffi.sizeof('struct btrfs_ioctl_fs_info_args'), 1025))
+    args_buf = ffi.buffer(args_cbuf)
+    args = ffi.cast('struct btrfs_ioctl_fs_info_args *', args_cbuf)
     before = tuple(args.fsid)
     ioctl_pybug(fd, lib.BTRFS_IOC_FS_INFO, args_buf)
     after = tuple(args.fsid)
@@ -463,12 +408,10 @@ def lookup_ino_path_one(volume_fd, ino, tree_id=0):
     args.treeid = tree_id
     ioctl_pybug(volume_fd, lib.BTRFS_IOC_INO_LOOKUP, ffi.buffer(args))
     rv = os.fsdecode(ffi.string(args.name))
-    # For some reason the kernel puts a final /
-    if tree_id == 0:
-        assert rv[-1:] == '/', repr(rv)
-        return rv[:-1]
-    else:
+    if tree_id != 0:
         return rv
+    assert rv[-1:] == '/', repr(rv)
+    return rv[:-1]
 
 
 def read_root_tree(volume_fd):
@@ -486,16 +429,16 @@ def read_root_tree(volume_fd):
     root_info = {}
     ri_rel = {}
 
-    while True:
-        sk.nr_items = 4096
+    sk.nr_items = 4096
 
+    while True:
         ioctl_pybug(
             volume_fd, lib.BTRFS_IOC_TREE_SEARCH, args_buffer)
         if sk.nr_items == 0:
             break
 
         offset = 0
-        for item_id in range(sk.nr_items):
+        for _ in range(sk.nr_items):
             sh = ffi.cast(
                 'struct btrfs_ioctl_search_header *', args.buf + offset)
             offset += ffi.sizeof('struct btrfs_ioctl_search_header') + sh.len
@@ -530,11 +473,6 @@ def read_root_tree(volume_fd):
                         posixpath.join(reldirpath, name),
                         parent_root_id,
                         is_frozen)
-            # There's also a uuid we could catch on a sufficiently recent
-            # BTRFS_ROOT_ITEM_KEY (v3.6). Since the fs is live careful
-            # invalidation (in case it was mounted by an older kernel)
-            # shouldn't be necessary.
-
         sk.min_objectid = sh.objectid
         sk.min_type = max(lib.BTRFS_ROOT_ITEM_KEY, sh.type)
         sk.min_offset = sh.offset + 1
@@ -570,16 +508,16 @@ def get_root_generation(volume_fd):
     sk.max_offset = u64_max
     sk.max_transid = u64_max
 
-    while True:
-        sk.nr_items = 4096
+    sk.nr_items = 4096
 
+    while True:
         ioctl_pybug(
             volume_fd, lib.BTRFS_IOC_TREE_SEARCH, args_buffer)
         if sk.nr_items == 0:
             break
 
         offset = 0
-        for item_id in range(sk.nr_items):
+        for _ in range(sk.nr_items):
             sh = ffi.cast(
                 'struct btrfs_ioctl_search_header *', args.buf + offset)
             offset += ffi.sizeof('struct btrfs_ioctl_search_header') + sh.len
@@ -625,9 +563,9 @@ def find_new(volume_fd, min_generation, results_file, terse, sep):
     sk.max_transid = u64_max
     sk.max_type = lib.BTRFS_EXTENT_DATA_KEY
 
-    while True:
-        sk.nr_items = 4096
+    sk.nr_items = 4096
 
+    while True:
         # May raise EPERM
         ioctl_pybug(
             volume_fd, lib.BTRFS_IOC_TREE_SEARCH, args_buffer)
@@ -636,7 +574,7 @@ def find_new(volume_fd, min_generation, results_file, terse, sep):
             break
 
         offset = 0
-        for item_id in range(sk.nr_items):
+        for _ in range(sk.nr_items):
             sh = ffi.cast(
                 'struct btrfs_ioctl_search_header *', args.buf + offset)
             offset += ffi.sizeof('struct btrfs_ioctl_search_header') + sh.len
@@ -666,8 +604,6 @@ def find_new(volume_fd, min_generation, results_file, terse, sep):
                 if terse:
                     # XXX sh.objectid must be wrong
                     continue
-                    name = lookup_ino_path_one(volume_fd, sh.objectid)
-                    results_file.write(name + sep)
                 else:
                     results_file.write(
                         'item type %d ino %d len %d gen0 %d gen1 %d%s' % (
@@ -679,35 +615,25 @@ def find_new(volume_fd, min_generation, results_file, terse, sep):
                 ref = ffi.cast(
                     'struct btrfs_inode_ref *', sh + 1)
                 name = name_of_inode_ref(ref)
-                if terse:
-                    # XXX short name
-                    continue
-                    results_file.write(name + sep)
-                else:
+                if not terse:
                     results_file.write(
                         'item type %d ino %d len %d gen0 %d name %s%s' % (
                             sh.type, sh.objectid, sh.len, sh.transid,
                             name, sep))
-            elif (sh.type == lib.BTRFS_DIR_ITEM_KEY
-                  or sh.type == lib.BTRFS_DIR_INDEX_KEY):
+            elif sh.type in [lib.BTRFS_DIR_ITEM_KEY, lib.BTRFS_DIR_INDEX_KEY]:
                 item = ffi.cast(
                     'struct btrfs_dir_item *', sh + 1)
                 name = name_of_dir_item(item)
-                if terse:
-                    # XXX short name
-                    continue
-                    results_file.write(name + sep)
-                else:
+                if not terse:
                     results_file.write(
                         'item type %d dir ino %d len %d'
                         ' gen0 %d gen1 %d type1 %d name %s%s' % (
                             sh.type, sh.objectid, sh.len,
                             sh.transid, item.transid, item.type, name, sep))
-            else:
-                if not terse:
-                    results_file.write(
-                        'item type %d oid %d len %d gen0 %d%s' % (
-                            sh.type, sh.objectid, sh.len, sh.transid, sep))
+            elif not terse:
+                results_file.write(
+                    'item type %d oid %d len %d gen0 %d%s' % (
+                        sh.type, sh.objectid, sh.len, sh.transid, sep))
         sk.min_objectid = sh.objectid
         sk.min_type = sh.type
         sk.min_offset = sh.offset

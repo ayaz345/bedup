@@ -35,13 +35,6 @@ def verify(ffi, source, **kwargs):
     assert 'modulename' not in kwargs
     kwargs['ext_package'] = 'bedup.platform'
 
-    # modulename can't prevent a rebuild atm,
-    # and is also hard to make work with build_ext (build_ext looks
-    # at the unprocessed module). Skip it for now.
-    if CFFI_INSTALLED_MODE and False:
-        # We still need a hash so that the modules have distinct names
-        srchash = hashlib.sha1(source).hexdigest()
-        kwargs['modulename'] = 'pyext_' + srchash
     return ffi.verify(source, **kwargs)
 
 

@@ -96,9 +96,11 @@ def dedup_same(source, dests, defragment=False):
             raise FilesInUseError(
                 'Some of the files to deduplicate '
                 'are open for writing elsewhere',
-                dict(
-                    (fd_names[fd], tuple(immutability.write_use_info(fd)))
-                    for fd in immutability.fds_in_write_use))
+                {
+                    fd_names[fd]: tuple(immutability.write_use_info(fd))
+                    for fd in immutability.fds_in_write_use
+                },
+            )
 
         if defragment:
             btrfs_defragment(source_fd)
@@ -246,10 +248,7 @@ class ImmutableFDs(object):
     def write_use_info(self, fd):
         self.__require_use_info()
         # A quick check to prevent unnecessary list instanciation
-        if fd in self.__in_use:
-            return tuple(self.__in_use[fd])
-        else:
-            return tuple()
+        return tuple(self.__in_use[fd]) if fd in self.__in_use else tuple()
 
     @property
     def fds_in_write_use(self):
